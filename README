@@ -37,7 +37,8 @@ Example use:
         }
   }
 
-
+Todo:
+    grep 'TODO' * -r
 
 Notes: 
     * This library is derived from jBcrypt by Damien Miller <djm@mindrot.org>
