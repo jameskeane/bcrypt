@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"bytes"
 	"strconv"
-	"strings"
-	"bufio"
 	"crypto/rand"
 )
 
 var (
-	InvalidRounds = os.NewError("invalid rounds")
-	InvalidSalt   = os.NewError("invalid salt")
+	InvalidRounds = os.NewError("bcrypt: Invalid rounds parameter")
+	InvalidSalt   = os.NewError("bcrypt: Invalid salt supplied")
 )
 
 const (
@@ -61,14 +59,12 @@ func Salt(rounds ...int) (string, os.Error) {
 	return build_bcrypt_str('a', uint(r), encode_base64(rnd, len(rnd))), nil
 }
 
-// SaltBytes provides a []byte based wrapper to Salt.
-//
 func SaltBytes(rounds int) (salt []byte, err os.Error) {
 	b, err := Salt(rounds)
 	return []byte(b), err
 }
 
-func consume(r *bufio.Reader, b byte) bool {
+func consume(r *bytes.Buffer, b byte) bool {
 	got, err := r.ReadByte()
 	if err != nil {
 		return false
@@ -89,15 +85,13 @@ func Hash(password string, salt ...string) (hash string, err os.Error) {
 		if err != nil {
 			return
 		}
-	} else if len(salt) == 1 {
+	} else if len(salt) >0  {
 		s = salt[0]
-	} else {
-		return "", InvalidSalt
 	}
 
 	// Ok, extract the required information
 	minor := byte(0)
-	sr := bufio.NewReader(strings.NewReader(s))
+	sr := bytes.NewBufferString(s)
 
 	if !consume(sr, '$') || !consume(sr, '2') {
 		return "", InvalidSalt
@@ -147,8 +141,6 @@ func Hash(password string, salt ...string) (hash string, err os.Error) {
 	return build_bcrypt_str(minor, rounds, real_salt, encode_base64(hashed, len(bf_crypt_ciphertext)*4-1)), nil
 }
 
-// HashBytes provides a []byte based wrapper to Hash.
-//
 func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 	var s string
 	if len(salt) == 0 {
@@ -159,14 +151,6 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 	return []byte(s), err
 }
 
-
-// Match determines if an unencrypted password matches a previously encrypted
-// password. It does so by generating a Blowfish encrypted hash of the
-// unencrypted password and the random salt from the previously encrypted
-// password.
-//
-// Returns 'true' when the encrypted passwords match, otherwise 'false'.
-//
 func Match(password, hash string) bool {
 	h, err := Hash(password, hash)
 	if err != nil {
@@ -175,8 +159,6 @@ func Match(password, hash string) bool {
 	return h == hash
 }
 
-// MatchBytes provides a []byte based wrapper to Match.
-//
-func MatchBytes(password, hash []byte) bool {
+func MatchBytes(password []byte, hash []byte) bool {
 	return Match(string(password), string(hash))
 }
