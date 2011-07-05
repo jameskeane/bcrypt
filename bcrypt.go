@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 )
 
 var (
@@ -21,6 +22,8 @@ const (
 	SaltLen        = 16
 	BlowfishRounds = 16
 )
+
+var enc = base64.NewEncoding("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
 
 // Helper function to build the bcrypt hash string
 func build_bcrypt_str(minor byte, rounds uint, payload ...string) string {
@@ -57,7 +60,7 @@ func Salt(rounds ...int) (string, os.Error) {
 		return "", os.NewError("bcrypt: Could not read the required random bytes")
 	}
 
-	return build_bcrypt_str('a', uint(r), encode_base64(rnd, len(rnd))), nil
+	return build_bcrypt_str('a', uint(r), enc.EncodeToString(rnd)), nil
 }
 
 func SaltBytes(rounds int) (salt []byte, err os.Error) {
@@ -121,25 +124,27 @@ func Hash(password string, salt ...string) (hash string, err os.Error) {
 		return "", InvalidSalt
 	}
 
+	// TODO: can't we use base64.NewDecoder(enc, sr) ?
 	salt_bytes := make([]byte, 22)
 	read, err = sr.Read(salt_bytes)
 	if err != nil || read != 22 {
 		return "", InvalidSalt
 	}
-
+	
 	var saltb []byte
-	real_salt := string(salt_bytes)
-	saltb, err = decode_base64(real_salt, SaltLen)
+	// encoding/base64 expects 4 byte blocks padded, since bcrypt uses only 22 bytes we need to go up
+	saltb, err = enc.DecodeString(string(salt_bytes) + "==")
 	if err != nil {
-		return "", InvalidSalt
+		return "", err
 	}
 
 	// TODO: ARGH	
 	password += "\000"
 
 	B := newCipher()
-	hashed := B.crypt_raw([]byte(password), saltb, rounds)
-	return build_bcrypt_str(minor, rounds, real_salt, encode_base64(hashed, len(bf_crypt_ciphertext)*4-1)), nil
+	hashed := B.crypt_raw([]byte(password), saltb[:SaltLen], rounds)
+	hashStr := enc.EncodeToString(hashed[:len(bf_crypt_ciphertext)*4-1])
+	return build_bcrypt_str(minor, rounds, string(salt_bytes), hashStr[:len(hashStr)-1]), nil
 }
 
 func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
