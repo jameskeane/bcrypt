@@ -2,7 +2,7 @@ package bcrypt
 
 import (
 	"os"
-	"fmt"
+	"strings"
 	"bytes"
 	"strconv"
 	"crypto/rand"
@@ -26,46 +26,55 @@ const (
 var enc = base64.NewEncoding("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
 
 // Helper function to build the bcrypt hash string
-func build_bcrypt_str(minor byte, rounds uint, payload ...string) string {
+// payload takes :
+//		* []byte -> which it base64 encodes it (trims padding "=") and writes it to the buffer
+//		* string -> which it writes straight to the buffer
+func build_bcrypt_str(minor byte, rounds uint, payload ...interface{}) []byte {
 	rs := bytes.NewBufferString("")
-	fmt.Fprint(rs, "$2")
+	rs.WriteString("$2")
 	if minor >= 'a' {
-		fmt.Fprint(rs, string(minor))
+		rs.WriteString(string(minor))
 	}
-	fmt.Fprint(rs, "$")
+	
+	rs.WriteString("$")
 	if rounds < 10 {
-		fmt.Fprint(rs, "0")
+		rs.WriteString("0")
 	}
-	fmt.Fprint(rs, rounds)
-	fmt.Fprint(rs, "$")
+	
+	rs.WriteString(strconv.Uitoa(rounds))
+	rs.WriteString("$")
 	for _, p := range payload {
-		fmt.Fprint(rs, string(p))
+		if pb, ok := p.([]byte); ok {
+			rs.WriteString(strings.TrimRight(enc.EncodeToString(pb), "="))
+		} else if ps, ok := p.(string); ok {
+			rs.WriteString(ps)
+		}
 	}
-	return string(rs.Bytes())
+	return rs.Bytes()
 }
 
 // Salt generation
 func Salt(rounds ...int) (string, os.Error) {
+	rb, err := SaltBytes(rounds...)
+	return string(rb), err
+}
+
+func SaltBytes(rounds ...int) (salt []byte, err os.Error) {
 	r := DefaultRounds
 	if len(rounds) > 0 {
 		r = rounds[0]
 		if r < MinRounds || r > MaxRounds {
-			return "", InvalidRounds
+			return nil, InvalidRounds
 		}
 	}
 
 	rnd := make([]byte, SaltLen)
 	read, err := rand.Read(rnd)
 	if read != SaltLen || err != nil {
-		return "", os.NewError("bcrypt: Could not read the required random bytes")
+		return nil, err
 	}
 
-	return build_bcrypt_str('a', uint(r), enc.EncodeToString(rnd)), nil
-}
-
-func SaltBytes(rounds int) (salt []byte, err os.Error) {
-	b, err := Salt(rounds)
-	return []byte(b), err
+	return build_bcrypt_str('a', uint(r), rnd), nil
 }
 
 func consume(r *bytes.Buffer, b byte) bool {
@@ -81,11 +90,28 @@ func consume(r *bytes.Buffer, b byte) bool {
 	return true
 }
 
-func Hash(password string, salt ...string) (hash string, err os.Error) {
-	var s string
+func Hash(password string, salt ...string) (ps string, err os.Error) {	
+	var s []byte
+	var pb []byte 
+	
+	if len(salt) == 0 {
+		s, err = SaltBytes()
+		if err != nil {
+			return
+		}
+	} else if len(salt) >0  {
+		s = []byte(salt[0])
+	}
+	
+	pb, err = HashBytes([]byte(password), s)
+	return string(pb), err
+}
+
+func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
+	var s []byte
 
 	if len(salt) == 0 {
-		s, err = Salt()
+		s, err = SaltBytes()
 		if err != nil {
 			return
 		}
@@ -95,76 +121,66 @@ func Hash(password string, salt ...string) (hash string, err os.Error) {
 
 	// Ok, extract the required information
 	minor := byte(0)
-	sr := bytes.NewBufferString(s)
+	sr := bytes.NewBuffer(s)
 
 	if !consume(sr, '$') || !consume(sr, '2') {
-		return "", InvalidSalt
+		return nil, InvalidSalt
 	}
 
 	if !consume(sr, '$') {
 		minor, _ = sr.ReadByte()
 		if minor != 'a' || !consume(sr, '$') {
-			return "", InvalidSalt
+		return nil, InvalidSalt
 		}
 	}
 
 	rounds_bytes := make([]byte, 2)
 	read, err := sr.Read(rounds_bytes)
 	if err != nil || read != 2 {
-		return "", InvalidSalt
+		return nil, InvalidSalt
 	}
 
 	if !consume(sr, '$') {
-		return "", InvalidSalt
+		return nil, InvalidSalt
 	}
 
 	var rounds uint
 	rounds, err = strconv.Atoui(string(rounds_bytes))
 	if err != nil {
-		return "", InvalidSalt
+		return nil, InvalidSalt
 	}
 
 	// TODO: can't we use base64.NewDecoder(enc, sr) ?
 	salt_bytes := make([]byte, 22)
 	read, err = sr.Read(salt_bytes)
 	if err != nil || read != 22 {
-		return "", InvalidSalt
+		return nil, InvalidSalt
 	}
 	
 	var saltb []byte
 	// encoding/base64 expects 4 byte blocks padded, since bcrypt uses only 22 bytes we need to go up
 	saltb, err = enc.DecodeString(string(salt_bytes) + "==")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	// TODO: ARGH	
-	password += "\000"
+	// cipher expects null terminated input (go initializes everything with zero values so this works)
+	password_term := make([]byte, len(password)+1)
+	copy(password_term, password)
 
 	B := newCipher()
-	hashed := B.crypt_raw([]byte(password), saltb[:SaltLen], rounds)
-	hashStr := enc.EncodeToString(hashed[:len(bf_crypt_ciphertext)*4-1])
-	return build_bcrypt_str(minor, rounds, string(salt_bytes), hashStr[:len(hashStr)-1]), nil
-}
-
-func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
-	var s string
-	if len(salt) == 0 {
-		s, err = Hash(string(password))
-	} else {
-		s, err = Hash(string(password), string(salt[0]))
-	}
-	return []byte(s), err
+	hashed := B.crypt_raw(password_term, saltb[:SaltLen], rounds)
+	return build_bcrypt_str(minor, rounds, string(salt_bytes), hashed[:len(bf_crypt_ciphertext)*4-1]), nil
 }
 
 func Match(password, hash string) bool {
-	h, err := Hash(password, hash)
-	if err != nil {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(h), []byte(hash)) == 1
+	return MatchBytes([]byte(password), []byte(hash))
 }
 
 func MatchBytes(password []byte, hash []byte) bool {
-	return Match(string(password), string(hash))
+	h, err := HashBytes(password, hash)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare(h, hash) == 1
 }
