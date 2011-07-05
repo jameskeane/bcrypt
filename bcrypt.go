@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"strconv"
 	"crypto/rand"
+	"crypto/subtle"
 )
 
 var (
@@ -156,7 +157,7 @@ func Match(password, hash string) bool {
 	if err != nil {
 		return false
 	}
-	return h == hash
+	return subtle.ConstantTimeCompare([]byte(h), []byte(hash)) == 1
 }
 
 func MatchBytes(password []byte, hash []byte) bool {
