@@ -30,19 +30,19 @@ var enc = base64.NewEncoding("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
 //		* []byte -> which it base64 encodes it (trims padding "=") and writes it to the buffer
 //		* string -> which it writes straight to the buffer
 func build_bcrypt_str(minor byte, rounds uint, payload ...interface{}) []byte {
-	rs := bytes.NewBufferString("")
+	rs := bytes.NewBuffer(make([]byte, 0, 61))
 	rs.WriteString("$2")
 	if minor >= 'a' {
-		rs.WriteString(string(minor))
+		rs.WriteByte(minor)
 	}
 	
-	rs.WriteString("$")
+	rs.WriteByte('$')
 	if rounds < 10 {
-		rs.WriteString("0")
+		rs.WriteByte('0')
 	}
 	
 	rs.WriteString(strconv.Uitoa(rounds))
-	rs.WriteString("$")
+	rs.WriteByte('$')
 	for _, p := range payload {
 		if pb, ok := p.([]byte); ok {
 			rs.WriteString(strings.TrimRight(enc.EncodeToString(pb), "="))
@@ -118,6 +118,9 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 	} else if len(salt) >0  {
 		s = salt[0]
 	}
+
+	// TODO: use a regex? I hear go has bad regex performance a simple FSM seems faster
+	// 			"^\\$2([a-z]?)\\$([0-3][0-9])\\$([\\./A-Za-z0-9]{22}+)"
 
 	// Ok, extract the required information
 	minor := byte(0)
