@@ -171,8 +171,7 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 	password_term := make([]byte, len(password)+1)
 	copy(password_term, password)
 
-	B := newCipher()
-	hashed := B.crypt_raw(password_term, saltb[:SaltLen], rounds)
+	hashed := crypt_raw(password_term, saltb[:SaltLen], rounds)
 	return build_bcrypt_str(minor, rounds, string(salt_bytes), hashed[:len(bf_crypt_ciphertext)*4-1]), nil
 }
 

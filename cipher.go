@@ -5,7 +5,8 @@ var p_orig = [18]uint{
 	0xa4093822, 0x299f31d0, 0x082efa98, 0xec4e6c89,
 	0x452821e6, 0x38d01377, 0xbe5466cf, 0x34e90c6c,
 	0xc0ac29b7, 0xc97c50dd, 0x3f84d5b5, 0xb5470917,
-	0x9216d5d9, 0x8979fb1b}
+	0x9216d5d9, 0x8979fb1b,
+}
 
 var s_orig = [1024]uint{
 	0xd1310ba6, 0x98dfb5ac, 0x2ffd72db, 0xd01adfb7,
@@ -263,40 +264,29 @@ var s_orig = [1024]uint{
 	0x85cbfe4e, 0x8ae88dd8, 0x7aaaf9b0, 0x4cf9aa7e,
 	0x1948c25c, 0x02fb8a8c, 0x01c36ae4, 0xd6ebe1f9,
 	0x90d4f869, 0xa65cdea0, 0x3f09252d, 0xc208e69f,
-	0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6}
+	0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6,
+}
 
 var bf_crypt_ciphertext = [6]uint{
 	0x4f727068, 0x65616e42, 0x65686f6c,
-	0x64657253, 0x63727944, 0x6f756274}
+	0x64657253, 0x63727944, 0x6f756274,
+}
 
 
 type cipher struct {
 	P [18]uint
 	S [1024]uint
+	data [6]uint
 }
 
 func (c *cipher) encipher(lr []uint, off int) {
-	i := 0
-	l := lr[off]
+	l := lr[off] ^ c.P[0]
 	r := lr[off+1]
-	l ^= c.P[0]
 
-	for i <= BlowfishRounds-2 {
-		// Feistel substitution on left word
-		n := c.S[(l>>24)&0xff]
-		n += c.S[0x100|((l>>16)&0xff)]
-		n ^= c.S[0x200|((l>>8)&0xff)]
-		n += c.S[0x300|(l&0xff)]
-		i++
-		r ^= n ^ c.P[i]
-
-		// Feistel substitution on right word
-		n = c.S[(r>>24)&0xff]
-		n += c.S[0x100|((r>>16)&0xff)]
-		n ^= c.S[0x200|((r>>8)&0xff)]
-		n += c.S[0x300|(r&0xff)]
-		i++
-		l ^= n ^ c.P[i]
+	for i := 0; i <= BlowfishRounds-2; i += 2{
+		// Feistel substitution on left and right word respectively
+		r ^= (((c.S[(l>>24)&0xff] + c.S[0x100|((l>>16)&0xff)]) ^ c.S[0x200|((l>>8)&0xff)]) + c.S[0x300|(l&0xff)]) ^ c.P[i+1]
+		l ^= (((c.S[(r>>24)&0xff] + c.S[0x100|((r>>16)&0xff)]) ^ c.S[0x200|((r>>8)&0xff)]) + c.S[0x300|(r&0xff)]) ^ c.P[i+2]
 	}
 
 	lr[off] = r ^ c.P[BlowfishRounds+1]
@@ -397,9 +387,8 @@ func (c *cipher) ekskey(data []byte, key []byte) {
  * of rounds of hashing to apply
  * @return	an array containing the binary hashed password
  */
-func (c *cipher) crypt_raw(password []byte, salt []byte, log_rounds uint) []byte {
-	cdata := bf_crypt_ciphertext
-	clen := len(cdata)
+func crypt_raw(password []byte, salt []byte, log_rounds uint) []byte {
+	c := &cipher{P:p_orig, S:s_orig, data:bf_crypt_ciphertext}
 
 	rounds := 1 << log_rounds
 	c.ekskey(salt, password)
@@ -409,30 +398,18 @@ func (c *cipher) crypt_raw(password []byte, salt []byte, log_rounds uint) []byte
 	}
 
 	for i := 0; i < 64; i++ {
-		for j := 0; j < (clen >> 1); j++ {
-			c.encipher(cdata[:], j<<1)
+		for j := 0; j < (6 >> 1); j++ {
+			c.encipher(c.data[:], j<<1)
 		}
 	}
-
-	ret := make([]byte, clen*4)
-	j := 0
-	for i := 0; i < clen; i++ {
-		ret[j] = (byte)((cdata[i] >> 24) & 0xff)
-		j++
-		ret[j] = (byte)((cdata[i] >> 16) & 0xff)
-		j++
-		ret[j] = (byte)((cdata[i] >> 8) & 0xff)
-		j++
-		ret[j] = (byte)(cdata[i] & 0xff)
-		j++
+	
+	ret := make([]byte, 24)
+	for i := 0; i < 6; i++ {
+		k := i<<2
+		ret[k] = (byte)((c.data[i] >> 24) & 0xff)
+		ret[k+1] = (byte)((c.data[i] >> 16) & 0xff)
+		ret[k+2] = (byte)((c.data[i] >> 8) & 0xff)
+		ret[k+3] = (byte)(c.data[i] & 0xff)
 	}
 	return ret
-}
-
-
-func newCipher() *cipher {
-	c := new(cipher)
-	c.P = p_orig
-	c.S = s_orig
-	return c
 }
