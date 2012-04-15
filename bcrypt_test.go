@@ -7,12 +7,11 @@
 package bcrypt
 
 import (
-	"os"
 	"reflect"
 	"testing"
 )
 
-func check_error(t *testing.T, i int, err, terr os.Error) {
+func check_error(t *testing.T, i int, err, terr error) {
 	if err != terr {
 		t.Errorf("test(%d): err: %v expected: %v", i, err, terr)
 	}
@@ -21,7 +20,7 @@ func check_error(t *testing.T, i int, err, terr os.Error) {
 type HashTest struct {
 	pw   []byte
 	hash []byte
-	err  os.Error
+	err  error
 }
 
 var hash_tests []HashTest = []HashTest{
@@ -65,7 +64,7 @@ func TestHashBytes(t *testing.T) {
 
 type SaltTest struct {
 	rounds int
-	err    os.Error
+	err    error
 }
 
 var salt_tests []SaltTest = []SaltTest{
