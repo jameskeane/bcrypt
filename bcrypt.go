@@ -1,18 +1,18 @@
 package bcrypt
 
 import (
-	"os"
-	"strings"
 	"bytes"
-	"strconv"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
+	"strconv"
+	"strings"
 )
 
 var (
-	InvalidRounds = os.NewError("bcrypt: Invalid rounds parameter")
-	InvalidSalt   = os.NewError("bcrypt: Invalid salt supplied")
+	InvalidRounds = errors.New("bcrypt: Invalid rounds parameter")
+	InvalidSalt   = errors.New("bcrypt: Invalid salt supplied")
 )
 
 const (
@@ -35,13 +35,13 @@ func build_bcrypt_str(minor byte, rounds uint, payload ...interface{}) []byte {
 	if minor >= 'a' {
 		rs.WriteByte(minor)
 	}
-	
+
 	rs.WriteByte('$')
 	if rounds < 10 {
 		rs.WriteByte('0')
 	}
-	
-	rs.WriteString(strconv.Uitoa(rounds))
+
+	rs.WriteString(strconv.FormatUint(uint64(rounds), 10))
 	rs.WriteByte('$')
 	for _, p := range payload {
 		if pb, ok := p.([]byte); ok {
@@ -54,12 +54,12 @@ func build_bcrypt_str(minor byte, rounds uint, payload ...interface{}) []byte {
 }
 
 // Salt generation
-func Salt(rounds ...int) (string, os.Error) {
+func Salt(rounds ...int) (string, error) {
 	rb, err := SaltBytes(rounds...)
 	return string(rb), err
 }
 
-func SaltBytes(rounds ...int) (salt []byte, err os.Error) {
+func SaltBytes(rounds ...int) (salt []byte, err error) {
 	r := DefaultRounds
 	if len(rounds) > 0 {
 		r = rounds[0]
@@ -90,24 +90,24 @@ func consume(r *bytes.Buffer, b byte) bool {
 	return true
 }
 
-func Hash(password string, salt ...string) (ps string, err os.Error) {	
+func Hash(password string, salt ...string) (ps string, err error) {
 	var s []byte
-	var pb []byte 
-	
+	var pb []byte
+
 	if len(salt) == 0 {
 		s, err = SaltBytes()
 		if err != nil {
 			return
 		}
-	} else if len(salt) >0  {
+	} else if len(salt) > 0 {
 		s = []byte(salt[0])
 	}
-	
+
 	pb, err = HashBytes([]byte(password), s)
 	return string(pb), err
 }
 
-func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
+func HashBytes(password []byte, salt ...[]byte) (hash []byte, err error) {
 	var s []byte
 
 	if len(salt) == 0 {
@@ -115,7 +115,7 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 		if err != nil {
 			return
 		}
-	} else if len(salt) >0  {
+	} else if len(salt) > 0 {
 		s = salt[0]
 	}
 
@@ -133,7 +133,7 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 	if !consume(sr, '$') {
 		minor, _ = sr.ReadByte()
 		if minor != 'a' || !consume(sr, '$') {
-		return nil, InvalidSalt
+			return nil, InvalidSalt
 		}
 	}
 
@@ -147,11 +147,13 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 		return nil, InvalidSalt
 	}
 
-	var rounds uint
-	rounds, err = strconv.Atoui(string(rounds_bytes))
+	var rounds64 uint64
+	rounds64, err = strconv.ParseUint(string(rounds_bytes), 10, 0)
 	if err != nil {
 		return nil, InvalidSalt
 	}
+
+	rounds := uint(rounds64)
 
 	// TODO: can't we use base64.NewDecoder(enc, sr) ?
 	salt_bytes := make([]byte, 22)
@@ -159,7 +161,7 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err os.Error) {
 	if err != nil || read != 22 {
 		return nil, InvalidSalt
 	}
-	
+
 	var saltb []byte
 	// encoding/base64 expects 4 byte blocks padded, since bcrypt uses only 22 bytes we need to go up
 	saltb, err = enc.DecodeString(string(salt_bytes) + "==")
