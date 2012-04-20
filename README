@@ -1,12 +1,12 @@
 Installation:
-    goinstall github.com/weekendlogic/bcrypt
+    goinstall github.com/jameskeane/bcrypt
 
 Example use:
   package main
 
   import (
         "fmt"
-        "github.com/weekendlogic/bcrypt"
+        "github.com/jameskeane/bcrypt"
   )
 
   var password     = "WyWihatdyd?frub1"
