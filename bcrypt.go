@@ -102,6 +102,7 @@ func Hash(password string, salt ...string) (ps string, err error) {
 	} else if len(salt) > 0 {
 		s = []byte(salt[0])
 	}
+
 	pb, err = HashBytes([]byte(password), s)
 	return string(pb), err
 }
@@ -122,10 +123,18 @@ func HashBytes(password []byte, salt ...[]byte) (hash []byte, err error) {
 	// 			"^\\$2([a-z]?)\\$([0-3][0-9])\\$([\\./A-Za-z0-9]{22}+)"
 
 	// Ok, extract the required information
-	minor := byte('y')
+	minor := byte(0)
 	sr := bytes.NewBuffer(s)
-	if !consume(sr, '$') || !consume(sr, '2') || !consume(sr, 'y') || !consume(sr, '$') {
+
+	if !consume(sr, '$') || !consume(sr, '2') {
 		return nil, InvalidSalt
+	}
+
+	if !consume(sr, '$') {
+		minor, _ = sr.ReadByte()
+		if minor != 'a' || !consume(sr, '$') {
+			return nil, InvalidSalt
+		}
 	}
 
 	rounds_bytes := make([]byte, 2)
